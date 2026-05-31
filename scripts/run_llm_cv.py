@@ -18,7 +18,7 @@ from src.config import LLM_MODEL_NAME, N_FOLDS, RESULTS_DIR
 from src.data_utils import get_fold_dataframes, prepare_dataset
 from src.llm_inference import LocalLLMClassifier, clear_gpu_memory, evaluate_llm_fold
 from src.metrics import summarize_across_folds
-from src.results_io import save_all_fold_metrics, save_fold_metrics, save_summary_json
+from src.results_io import save_fold_metrics
 
 MODES = ("zero_shot", "few_shot")
 
@@ -46,7 +46,7 @@ def fold_mode_done(fold_idx: int, mode: str) -> bool:
 
 
 def rebuild_consolidated_metrics(mode: str) -> None:
-    """Merge all per-fold CSVs (including fold 0 from earlier runs) into one file."""
+    """Merge all per-fold CSVs into consolidated metrics and summary files."""
     mode_dir = RESULTS_DIR / "llm" / mode
     if not mode_dir.exists():
         return
@@ -74,8 +74,8 @@ def main() -> None:
     parser.add_argument(
         "--folds",
         type=str,
-        default="1,2,3,4",
-        help="Fold indices comma-separated or 'all' (default: 1,2,3,4)",
+        default="all",
+        help="Fold indices comma-separated or 'all' (default: all)",
     )
     parser.add_argument(
         "--modes",

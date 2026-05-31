@@ -8,7 +8,7 @@ from typing import Any
 
 import pandas as pd
 
-from src.config import LABELS, RESULTS_DIR
+from src.config import RESULTS_DIR
 
 
 def _metrics_to_rows(

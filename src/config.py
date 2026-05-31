@@ -26,12 +26,12 @@ MAX_SEQ_LENGTH = 256
 
 # BERT training defaults (tuned for local GPU; reduce batch size if OOM)
 BERT_MODEL_DIR = PROJECT_ROOT / "models" / "distilbert-base-uncased"
-BERT_MODEL_NAME = str(BERT_MODEL_DIR)  # local copy — avoids HF download hangs
+BERT_MODEL_NAME = str(BERT_MODEL_DIR)
 BERT_EPOCHS = 3
 BERT_BATCH_SIZE = 16
 BERT_LEARNING_RATE = 2e-5
 
 # Local LLM via Hugging Face (no Ollama required)
 LLM_MODEL_NAME = "HuggingFaceTB/SmolLM2-1.7B-Instruct"
-LLM_MAX_NEW_TOKENS = 64  # JSON output is short; lower = less VRAM
+LLM_MAX_NEW_TOKENS = 64
 LLM_TEMPERATURE = 0.0
