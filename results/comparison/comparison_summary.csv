@@ -1,0 +1,4 @@
+Method,Macro F1 (mean),Macro F1 (std),Micro F1 (mean),Micro F1 (std)
+BERT,0.4244,0.0299,0.7626,0.0061
+LLM zero-shot,0.1407,0.0014,0.1557,0.0012
+LLM few-shot,0.1753,0.0018,0.1705,0.0014

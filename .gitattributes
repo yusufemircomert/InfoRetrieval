@@ -1,0 +1,5 @@
+# Normalize line endings on checkout/commit (safe on Windows + Linux)
+* text=auto
+
+# Keep shell scripts Unix-style if you ever run on WSL/Linux
+*.sh text eol=lf

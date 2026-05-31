@@ -1,0 +1,19 @@
+Method,label,precision_mean,precision_std,recall_mean,recall_std,f1_mean,f1_std
+BERT,identity_hate,0.2,0.4472,0.0091,0.0203,0.0174,0.0389
+BERT,insult,0.76,0.0192,0.718,0.0547,0.7369,0.0225
+BERT,obscene,0.8577,0.0368,0.8187,0.0275,0.8368,0.0085
+BERT,severe_toxic,0.2682,0.2625,0.092,0.1026,0.1348,0.1452
+BERT,threat,0.0,0.0,0.0,0.0,0.0,0.0
+BERT,toxic,0.828,0.0344,0.8143,0.0357,0.8202,0.0167
+LLM zero-shot,identity_hate,0.0286,0.001,0.9636,0.0203,0.0555,0.0019
+LLM zero-shot,insult,0.1497,0.0016,0.91,0.0113,0.2571,0.0021
+LLM zero-shot,obscene,0.1595,0.0022,0.9011,0.0159,0.271,0.0035
+LLM zero-shot,severe_toxic,0.0323,0.0008,0.972,0.0228,0.0625,0.0015
+LLM zero-shot,threat,0.0098,0.0007,0.9733,0.0596,0.0195,0.0015
+LLM zero-shot,toxic,0.0981,0.0004,0.9933,0.0037,0.1786,0.0006
+LLM few-shot,identity_hate,0.0575,0.0021,0.8045,0.0203,0.1073,0.0038
+LLM few-shot,insult,0.1187,0.0012,0.8922,0.0125,0.2095,0.0021
+LLM few-shot,obscene,0.3418,0.008,0.7311,0.022,0.4657,0.0097
+LLM few-shot,severe_toxic,0.0247,0.0013,0.936,0.0537,0.0482,0.0025
+LLM few-shot,threat,0.0128,0.001,0.96,0.0596,0.0252,0.0019
+LLM few-shot,toxic,0.109,0.0009,0.9558,0.0114,0.1957,0.0016

@@ -1,0 +1,12 @@
+{
+  "n_folds": 5,
+  "random_seed": 42,
+  "labels": [
+    "toxic",
+    "severe_toxic",
+    "obscene",
+    "threat",
+    "insult",
+    "identity_hate"
+  ]
+}
