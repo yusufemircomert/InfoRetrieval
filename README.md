@@ -1,25 +1,87 @@
 # Toxic Comment Classification: Fine-Tuned BERT vs. Local LLM Prompting
 
-**Course project — Fuzzy Logic**  
+**Course:** AIN 428 — Information Retrieval (final project)  
 **Dataset:** [Jigsaw Toxic Comment Classification Challenge](https://www.kaggle.com/c/jigsaw-toxic-comment-classification-challenge)  
-**Hardware:** NVIDIA GeForce RTX 5060 (CUDA 12.8)
+**Hardware tested:** NVIDIA GeForce RTX 5060 GPU (8 GB VRAM, CUDA 12.8)
+
+Multi-label toxic comment classification comparing **supervised DistilBERT fine-tuning** against **local LLM prompting** (zero-shot and few-shot), evaluated with **5-fold cross-validation** on identical stratified splits.
 
 ---
 
-## 1. Abstract
+## Results at a glance
 
-This project compares two approaches to **multi-label toxic comment classification** on the Jigsaw dataset:
+| Method | Macro F1 (mean ± std) | Micro F1 (mean ± std) |
+|--------|----------------------:|----------------------:|
+| **DistilBERT** (5-fold CV) | **0.424 ± 0.030** | **0.763 ± 0.006** |
+| LLM zero-shot (5-fold CV) | 0.141 ± 0.001 | 0.156 ± 0.001 |
+| LLM few-shot (5-fold CV) | 0.175 ± 0.002 | 0.171 ± 0.001 |
 
-1. **Supervised fine-tuning** of DistilBERT (`distilbert-base-uncased`)
-2. **Prompt-based inference** with a local instruction-tuned LLM (`SmolLM2-1.7B-Instruct`), in zero-shot and few-shot settings
+Fine-tuned DistilBERT clearly outperforms the local 1.7B LLM. The LLM achieves high recall but very low precision — it over-predicts toxic labels. Both approaches struggle on rare classes (`threat`, `identity_hate`).
 
-Both methods are evaluated with **5-fold cross-validation** on a stratified subsample of 25,000 comments, using identical train/validation/test splits. Fine-tuned DistilBERT substantially outperforms the local LLM on all metrics. The LLM exhibits high recall but very low precision, indicating a tendency to over-predict toxic labels.
+Detailed tables, per-label breakdowns, and plots: run `notebooks/04_comparison.ipynb` or see `results/comparison/`.
 
 ---
 
-## 2. Problem Statement
+## Quick start
 
-Online platforms need automated systems to detect harmful language. The Jigsaw dataset provides human-annotated comments with six **independent binary labels**:
+### 1. Clone and create environment
+
+```powershell
+cd path\to\InfoRetrieval   # or your clone of this repo
+
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+# PyTorch with CUDA 12.8 (required for RTX 50-series / sm_120)
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+pip install -r requirements.txt
+
+# Optional: Word report export
+pip install python-docx
+```
+
+Register the Jupyter kernel (optional):
+
+```powershell
+python -m ipykernel install --user --name fuzzy-final --display-name "Python 3.12 (fuzzy-final)"
+```
+
+### 2. Download data and models (not in Git)
+
+These large files are excluded by `.gitignore` and must be obtained locally:
+
+| Item | Location | How to get it |
+|------|----------|---------------|
+| Jigsaw training set | `train.csv` | Download from [Kaggle](https://www.kaggle.com/c/jigsaw-toxic-comment-classification-challenge) |
+| DistilBERT weights | `models/distilbert-base-uncased/` | `huggingface-cli download distilbert-base-uncased --local-dir models/distilbert-base-uncased` |
+| Subsample & folds | `data/train_subsampled.csv`, `data/fold_indices/` | Run `notebooks/01_eda_and_splits.ipynb` (fold indices are committed; subsample is regenerated) |
+
+The LLM (`HuggingFaceTB/SmolLM2-1.7B-Instruct`) is downloaded automatically on first inference.
+
+### 3. Run experiments
+
+```powershell
+# Sanity check: subsample, folds, prompt parsing
+python scripts/smoke_test.py
+
+# BERT — all 5 folds (GPU, ~30 min/fold)
+python scripts/run_bert_cv.py --folds all --skip-done
+
+# LLM — zero-shot + few-shot (GPU, several hours total; resume-safe)
+python scripts/run_llm_cv.py --folds all --modes zero_shot,few_shot --skip-done
+
+# Comparison tables and plots
+jupyter notebook notebooks/04_comparison.ipynb
+
+# Generate Word report (optional)
+python scripts/generate_report_docx.py
+```
+
+---
+
+## Problem statement
+
+Online platforms need automated moderation. The Jigsaw dataset provides six **independent binary labels** per comment:
 
 | Label | Description |
 |-------|-------------|
@@ -30,17 +92,17 @@ Online platforms need automated systems to detect harmful language. The Jigsaw d
 | `insult` | Insulting or inflammatory language |
 | `identity_hate` | Targets identity (race, religion, gender, etc.) |
 
-This is a **multi-label** problem: a single comment may carry zero, one, or several labels simultaneously. Class imbalance is severe — rare labels such as `threat` and `identity_hate` appear in well under 1% of comments.
+This is **multi-label** classification with severe class imbalance (e.g. `threat` ≈ 0.3% of comments).
 
-**Research question:** For a fixed compute budget on consumer GPU hardware, does fine-tuning a compact transformer outperform prompting a small local LLM without task-specific training?
+**Research question:** On consumer GPU hardware, does fine-tuning a compact transformer outperform prompting a small local LLM without task-specific training?
 
 ---
 
-## 3. Dataset and Preprocessing
+## Dataset and preprocessing
 
-### 3.1 Full dataset (EDA)
+### Full dataset (EDA)
 
-The raw training set (`train.csv`) contains approximately **159,571** comments. Label prevalence on the full corpus:
+`train.csv` contains ~**159,571** comments. Label prevalence on the full corpus:
 
 | Label | Count | Prevalence |
 |-------|------:|-----------:|
@@ -51,31 +113,27 @@ The raw training set (`train.csv`) contains approximately **159,571** comments. 
 | insult | 7,877 | 4.93% |
 | identity_hate | 1,405 | 0.88% |
 
-Roughly **16,225** comments (10.2%) carry at least one toxic label.
+~**16,225** comments (10.2%) carry at least one toxic label. See `notebooks/01_eda_and_splits.ipynb`.
 
-### 3.2 Stratified subsample
+### Stratified subsample
 
-Training both BERT and the LLM on the full dataset is computationally expensive, especially for autoregressive LLM inference. We therefore draw a **25,000-row stratified subsample** using `MultilabelStratifiedShuffleSplit` (`iterative-stratification`), preserving the multi-label distribution. The subsample is saved to `data/train_subsampled.csv`.
+A **25,000-row stratified subsample** is drawn with `MultilabelStratifiedShuffleSplit` (`iterative-stratification`, seed = 42), preserving multi-label distribution. Saved to `data/train_subsampled.csv`.
 
-### 3.3 Cross-validation splits
+### Cross-validation splits
 
-We use **5-fold multilabel stratified CV** (`MultilabelStratifiedKFold`, seed = 42). For each fold:
+**5-fold multilabel stratified CV** (`MultilabelStratifiedKFold`, seed = 42). Per fold:
 
-- **Train:** 16,000 comments (80% of subsample minus validation)
-- **Validation:** 4,000 comments (20% of train portion, for early stopping)
+- **Train:** 16,000 comments
+- **Validation:** 4,000 comments (early stopping)
 - **Test:** 5,000 comments (held-out fold)
 
-Test-set toxic rates are stable across folds (~10.0–10.3%). Fold indices are persisted under `data/fold_indices/` so BERT and LLM experiments use **identical splits**.
-
-### 3.4 Text cleaning
-
-Comments are lowercased implicitly by the tokenizer; whitespace is normalized (newlines collapsed, repeated spaces removed). No stemming or stop-word removal is applied.
+Fold indices live in `data/fold_indices/` (`.npy` arrays + `metadata.json`). BERT and LLM experiments use **identical splits**.
 
 ---
 
-## 4. Methods
+## Methods
 
-### 4.1 Fine-tuned DistilBERT (supervised baseline)
+### Fine-tuned DistilBERT
 
 | Hyperparameter | Value |
 |----------------|-------|
@@ -87,39 +145,36 @@ Comments are lowercased implicitly by the tokenizer; whitespace is normalized (n
 | Learning rate | 2e-5 |
 | Early stopping | Patience = 1 epoch on validation loss |
 | Threshold | 0.5 on sigmoid outputs |
-| Precision | FP16 on GPU |
+| Mixed precision | FP16 on GPU |
 
-Each fold is trained independently; the best checkpoint (lowest validation loss) is selected for test evaluation.
+Each fold is trained independently; the best checkpoint (lowest validation loss) is evaluated on the test fold. Checkpoints are saved under `results/bert/checkpoints/` (gitignored).
 
-### 4.2 Local LLM (zero-shot and few-shot)
+### Local LLM (zero-shot and few-shot)
 
 | Setting | Value |
 |---------|-------|
 | Model | `HuggingFaceTB/SmolLM2-1.7B-Instruct` |
 | Temperature | 0.0 (greedy decoding) |
-| Max new tokens | 128 |
+| Max new tokens | 64 |
 | Output format | JSON with six 0/1 fields |
 
-**Zero-shot prompt:** Label definitions + required JSON schema + comment text.
+- **Zero-shot:** Label definitions + JSON schema + comment text.
+- **Few-shot:** Same structure plus three in-context examples (insult, benign, threat).
 
-**Few-shot prompt:** Same structure plus three in-context examples (insult, benign, threat).
+Responses are parsed as JSON with regex fallback. Raw predictions are **cached** per fold and mode under `results/llm/cache/` so runs can be stopped and resumed. The classifier loads and unloads the model per fold to reduce VRAM pressure.
 
-Responses are parsed as JSON with regex fallback. Predictions are **cached per fold and mode** under `results/llm/cache/` so runs can be stopped and resumed.
+### Evaluation metrics
 
-### 4.3 Evaluation metrics
+Per-label **precision, recall, and F1** via `sklearn`. Summary metrics:
 
-Per-label **precision, recall, and F1** are computed with `sklearn`. Summary metrics:
-
-- **Macro F1** — unweighted mean across labels (sensitive to rare classes)
-- **Micro F1** — pooled over all label decisions (dominated by frequent labels)
-
-Macro F1 is the primary metric for comparing methods on this imbalanced multi-label task.
+- **Macro F1** — unweighted mean across labels (primary metric for imbalanced multi-label tasks)
+- **Micro F1** — pooled over all label decisions
 
 ---
 
-## 5. Results
+## Results (complete — all 5 folds)
 
-### 5.1 DistilBERT — 5-fold CV (complete)
+### DistilBERT
 
 | Fold | Macro F1 | Micro F1 |
 |------|----------|----------|
@@ -128,165 +183,184 @@ Macro F1 is the primary metric for comparing methods on this imbalanced multi-la
 | 2 | 0.443 | 0.757 |
 | 3 | 0.416 | 0.766 |
 | 4 | 0.395 | 0.755 |
-| **Mean ± std** | **0.424 ± 0.031** | **0.763 ± 0.006** |
+| **Mean ± std** | **0.424 ± 0.030** | **0.763 ± 0.006** |
 
-**Per-label mean F1 (across 5 folds):**
+**Per-label mean F1 (5 folds):**
 
 | Label | Precision | Recall | F1 |
 |-------|-----------|--------|-----|
 | toxic | 0.83 | 0.81 | **0.82** |
 | obscene | 0.86 | 0.82 | **0.84** |
 | insult | 0.76 | 0.72 | **0.74** |
-| severe_toxic | 0.27 | 0.09 | 0.14 |
+| severe_toxic | 0.27 | 0.09 | 0.13 |
 | identity_hate | 0.20 | 0.01 | 0.02 |
 | threat | 0.00 | 0.00 | **0.00** |
 
-DistilBERT performs well on the three most frequent toxic categories (`toxic`, `obscene`, `insult`). It struggles severely on rare labels — especially `threat`, where no fold achieved non-zero F1. `identity_hate` and `severe_toxic` show similarly weak recall.
+DistilBERT performs well on frequent labels but fails on `threat` (zero F1 in every fold) and barely detects `identity_hate`.
 
-Micro F1 (~0.76) is much higher than macro F1 (~0.42) because the model correctly handles the abundant non-toxic majority and common labels, while rare labels drag down the macro average.
+### LLM zero-shot (5 folds)
 
-### 5.2 Local LLM — fold 0 only (partial)
+| Fold | Macro F1 | Micro F1 |
+|------|----------|----------|
+| 0 | 0.138 | 0.154 |
+| 1 | 0.140 | 0.155 |
+| 2 | 0.142 | 0.157 |
+| 3 | 0.142 | 0.157 |
+| 4 | 0.141 | 0.156 |
+| **Mean ± std** | **0.141 ± 0.001** | **0.156 ± 0.001** |
 
-Full 5-fold LLM evaluation is ongoing (inference is slow: on the order of hours per fold). Results below are from **fold 0** only.
+### LLM few-shot (5 folds)
 
-| Method | Macro F1 | Micro F1 |
-|--------|----------|----------|
-| LLM zero-shot | 0.138 | 0.154 |
-| LLM few-shot | 0.175 | 0.169 |
-| BERT (fold 0) | 0.401 | 0.767 |
+| Fold | Macro F1 | Micro F1 |
+|------|----------|----------|
+| 0 | 0.175 | 0.169 |
+| 1 | 0.178 | 0.173 |
+| 2 | 0.175 | 0.171 |
+| 3 | 0.174 | 0.170 |
+| 4 | 0.175 | 0.170 |
+| **Mean ± std** | **0.175 ± 0.002** | **0.171 ± 0.001** |
 
-**Per-label F1 — fold 0 comparison:**
+Few-shot prompting improves macro F1 by ~0.035 over zero-shot but remains far below BERT.
+
+### Per-label F1 — mean across 5 folds
 
 | Label | BERT | LLM zero-shot | LLM few-shot |
-|-------|------|---------------|--------------|
-| toxic | 0.83 | 0.18 | 0.19 |
-| obscene | 0.84 | 0.27 | 0.46 |
-| insult | 0.74 | 0.25 | 0.21 |
-| severe_toxic | 0.00 | 0.06 | 0.05 |
+|-------|-----:|--------------:|-------------:|
+| toxic | 0.82 | 0.18 | 0.20 |
+| obscene | 0.84 | 0.27 | **0.47** |
+| insult | 0.74 | 0.26 | 0.21 |
+| severe_toxic | 0.13 | 0.06 | 0.05 |
 | threat | 0.00 | 0.02 | 0.03 |
-| identity_hate | 0.00 | 0.05 | 0.11 |
+| identity_hate | 0.02 | 0.06 | 0.11 |
 
-The LLM achieves **high recall** (often > 0.85) but **very low precision** (< 0.15) on most labels — it frequently assigns toxic labels to benign comments. Few-shot prompting improves obscene detection (F1 0.27 → 0.46) and identity_hate (0.05 → 0.11) but remains far below BERT.
+The LLM shows **recall > 0.80** on most labels but **precision < 0.15** (except few-shot `obscene` at ~0.34). Few-shot helps most on `obscene` and `identity_hate`.
 
-### 5.3 Summary comparison
+### Method comparison
 
 ```
-Method              Macro F1    Micro F1    Training required    Inference speed
-─────────────────────────────────────────────────────────────────────────────────
-DistilBERT (5-fold)   ~0.42       ~0.76     Yes (~30 min/fold)   Fast (batched)
-LLM zero-shot (f0)    0.14        0.15      No                   Very slow
-LLM few-shot (f0)     0.17        0.17      No                   Very slow
+Method                 Macro F1    Micro F1    Training     Inference
+────────────────────────────────────────────────────────────────────────
+DistilBERT (5-fold)      0.424       0.763       Yes          Fast (batched)
+LLM zero-shot (5-fold)   0.141       0.156       No           Very slow
+LLM few-shot (5-fold)    0.175       0.171       No           Very slow
 ```
+
+Exported artifacts: `results/comparison/comparison_summary.csv`, `per_fold_all_methods.csv`, `per_label_summary.csv`, and PNG plots from notebook 04.
 
 ---
 
-## 6. Discussion
+## Discussion
 
-### 6.1 Why BERT wins on this task
+**Why BERT wins:** Fine-tuning adapts representations directly to the Jigsaw label space from thousands of labeled examples per fold. The 1.7B LLM must infer boundaries from a short prompt alone.
 
-Fine-tuning adapts token representations directly to the Jigsaw label space. DistilBERT learns decision boundaries from thousands of labeled examples per fold, including subtle distinctions between insult and toxic language. The LLM, despite instruction tuning, was not trained on this specific taxonomy and must infer label boundaries from a short prompt.
+**LLM over-prediction:** The model frequently assigns multiple toxic labels to benign comments, inflating recall and destroying precision. Likely factors include small model capacity, JSON-format pressure, and lack of calibrated probabilities.
 
-### 6.2 LLM over-prediction
+**Rare classes:** Both methods fail on `threat`. BERT never predicts it; the LLM detects some instances at unusable precision. Addressing this would require class-weighted loss, oversampling, or per-label thresholds.
 
-The local 1.7B model tends to mark comments as toxic across multiple labels simultaneously. This inflates recall but destroys precision. Possible causes:
-
-- Small model capacity relative to the task complexity
-- JSON-format pressure leading to default "1" assignments
-- Lack of calibration — no probability scores, only hard 0/1 outputs
-- Prompt length limits on long comments (truncation in generation context)
-
-### 6.3 Rare-class failure mode
-
-Both approaches fail on `threat`. BERT never predicts it; the LLM detects some threats but at unusable precision. This reflects extreme class imbalance (~0.3% prevalence) and the need for techniques such as class-weighted loss, focal loss, oversampling, or higher decision thresholds per label.
-
-### 6.4 Practical recommendations
-
-- **Production moderation:** Fine-tuned DistilBERT (or similar) is the better choice for accuracy and throughput.
-- **Zero-shot exploration:** LLM prompting can prototype new label definitions without retraining, but requires larger models or API access for competitive quality.
-- **Fair comparison:** Shared CV folds and cached LLM outputs ensure reproducible, methodologically sound evaluation.
+**Reproducibility:** Shared CV folds, fixed seed (42), and LLM response caching ensure fair comparison and resumable runs.
 
 ---
 
-## 7. Project Structure
+## Project structure
 
 ```
-final/
-├── train.csv                    # Full Jigsaw training data
+.
+├── train.csv                         # Kaggle dataset (not in Git — download locally)
+├── requirements.txt
+├── .gitignore
+├── .gitattributes
 ├── data/
-│   ├── train_subsampled.csv     # 25k stratified subsample
-│   └── fold_indices/            # Shared 5-fold splits
+│   ├── train_subsampled.csv          # Regenerated from train.csv (not in Git)
+│   └── fold_indices/                 # Shared 5-fold splits (.npy + metadata.json)
+├── models/
+│   └── distilbert-base-uncased/      # Local BERT weights (not in Git — ~1.5 GB)
 ├── src/
-│   ├── config.py                # Hyperparameters and paths
-│   ├── data_utils.py            # Loading, subsampling, CV splits
-│   ├── bert_model.py            # DistilBERT training and inference
-│   ├── llm_inference.py         # Local LLM classifier with caching
-│   ├── llm_prompts.py           # Zero/few-shot templates and parsing
-│   ├── metrics.py               # Precision, recall, F1
-│   └── results_io.py            # CSV/JSON export
+│   ├── config.py                     # Paths, hyperparameters, model names
+│   ├── data_utils.py                 # Loading, subsampling, CV splits
+│   ├── bert_model.py                 # DistilBERT training and evaluation
+│   ├── llm_inference.py              # Local LLM classifier with caching
+│   ├── llm_prompts.py                # Zero/few-shot templates and JSON parsing
+│   ├── metrics.py                    # Precision, recall, F1 aggregation
+│   └── results_io.py                 # CSV/JSON export helpers
 ├── notebooks/
-│   ├── 01_eda_and_splits.ipynb
-│   ├── 02_bert_cv.ipynb
-│   └── 03_llm_cv.ipynb
+│   ├── 01_eda_and_splits.ipynb       # EDA, subsample, fold creation
+│   ├── 02_bert_cv.ipynb              # Interactive BERT CV (optional)
+│   ├── 03_llm_cv.ipynb               # Interactive LLM CV (fold 0 + caching demo)
+│   └── 04_comparison.ipynb           # Tables, plots, export to results/comparison/
 ├── scripts/
-│   ├── run_bert_cv.py
-│   ├── run_llm_cv.py
-│   └── run_llm_overnight.ps1    # Long-running LLM jobs
+│   ├── run_bert_cv.py                # CLI: BERT 5-fold CV
+│   ├── run_llm_cv.py                 # CLI: LLM zero/few-shot CV
+│   ├── smoke_test.py                 # Quick pipeline sanity check
+│   ├── generate_report_docx.py       # Build REPORT.docx from embedded content
+│   ├── run_overnight.ps1             # Wrapper for long BERT runs
+│   ├── run_llm_overnight.ps1         # Wrapper for long LLM runs
+│   └── run_llm_overnight.bat         # Batch wrapper for LLM runs
 └── results/
-    ├── bert/                    # Checkpoints and metrics (5 folds complete)
-    └── llm/                     # zero_shot/, few_shot/, cache/
+    ├── bert/                         # Metrics CSVs + summary.json (checkpoints gitignored)
+    ├── llm/
+    │   ├── zero_shot/                # Per-fold and consolidated metrics
+    │   ├── few_shot/
+    │   └── cache/                    # Raw LLM responses (gitignored, regeneratable)
+    └── comparison/                   # Cross-method summary CSVs and plots
 ```
 
 ---
 
-## 8. Reproducibility
+## CLI reference
 
-### Environment
+### `run_bert_cv.py`
 
 ```powershell
-# From project root (final/)
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-
-# PyTorch with CUDA 12.8 (RTX 5060)
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
-pip install -r requirements.txt
+python scripts/run_bert_cv.py --folds all --skip-done
+python scripts/run_bert_cv.py --folds 0,1          # specific folds only
 ```
 
-### Running experiments
+| Flag | Description |
+|------|-------------|
+| `--folds` | Comma-separated fold indices or `all` (default: `all`) |
+| `--skip-done` | Skip folds that already have `results/bert/fold_N_metrics.csv` |
+
+Requires CUDA; fails fast if GPU is unavailable.
+
+### `run_llm_cv.py`
 
 ```powershell
-# EDA and fold creation
-jupyter notebook notebooks/01_eda_and_splits.ipynb
-
-# BERT — all 5 folds
-python scripts/run_bert_cv.py
-
-# LLM — resume-safe, one fold at a time
-python scripts/run_llm_cv.py --folds 0 --modes zero_shot few_shot
+python scripts/run_llm_cv.py --folds all --modes zero_shot,few_shot --skip-done
+python scripts/run_llm_cv.py --folds 0 --modes zero_shot --device cpu   # if GPU busy
 ```
 
-Random seed **42** is fixed for subsampling and fold creation. LLM caches prevent redundant inference when restarting.
+| Flag | Description |
+|------|-------------|
+| `--folds` | Comma-separated indices or `all` (default: `1,2,3,4`) |
+| `--modes` | `zero_shot`, `few_shot`, or both (default: both) |
+| `--skip-done` | Skip fold/mode pairs with existing metrics CSV |
+| `--device` | `cuda` (default) or `cpu` |
 
 ---
 
-## 9. Conclusion
+## What is tracked in Git
 
-We built a reproducible pipeline to compare supervised transformer fine-tuning against local LLM prompting for multi-label toxic comment classification. On identical 5-fold splits:
+**Included:** source code, notebooks, `requirements.txt`, fold indices, metric CSVs/JSON, comparison outputs.
 
-- **DistilBERT** achieves macro F1 ≈ **0.42** and strong performance on common labels.
-- **SmolLM2-1.7B** (fold 0) reaches macro F1 ≈ **0.14–0.17**, with few-shot prompting offering modest gains over zero-shot.
-- Both methods fail on the rarest labels, highlighting class imbalance as the main remaining challenge.
-
-Future work: complete the remaining LLM folds, experiment with class-weighted training, per-label thresholds, and larger LLMs or chain-of-thought prompting for rare categories.
+**Excluded** (see `.gitignore`): `.venv/`, `train.csv`, `models/`, BERT checkpoints, LLM cache, logs, generated `*.docx`.
 
 ---
 
-## 10. References
+## Conclusion
+
+On identical 5-fold splits of a 25,000-comment stratified subsample:
+
+- **DistilBERT** reaches macro F1 **0.424** with strong performance on `toxic`, `obscene`, and `insult`.
+- **SmolLM2-1.7B** reaches macro F1 **0.141** (zero-shot) and **0.175** (few-shot), with high recall but poor precision.
+- **Rare labels** remain the main challenge for both approaches.
+
+For production moderation on limited hardware, fine-tuned DistilBERT is the better choice. LLM prompting may still be useful for rapid prototyping of new label definitions without retraining.
+
+---
+
+## References
 
 1. Jigsaw / Google. *Toxic Comment Classification Challenge.* Kaggle, 2018.
 2. Sanh, V. et al. *DistilBERT, a distilled version of BERT.* arXiv:1910.01108, 2019.
-3. HuggingFace. *SmolLM2.* https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct
+3. HuggingFace. *SmolLM2-1.7B-Instruct.* https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct
 4. Sechidis, K. et al. *Stratification for multi-label data.* ECML PKDD, 2011.
-
----
-
