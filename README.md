@@ -73,8 +73,6 @@ python scripts/run_llm_cv.py --folds all --modes zero_shot,few_shot --skip-done
 # Comparison tables and plots
 jupyter notebook notebooks/04_comparison.ipynb
 
-# Generate Word report (optional)
-python scripts/generate_report_docx.py
 ```
 
 ---
@@ -291,7 +289,6 @@ Exported artifacts: `results/comparison/comparison_summary.csv`, `per_fold_all_m
 │   ├── run_bert_cv.py                # CLI: BERT 5-fold CV
 │   ├── run_llm_cv.py                 # CLI: LLM zero/few-shot CV
 │   ├── smoke_test.py                 # Quick pipeline sanity check
-│   ├── generate_report_docx.py       # Build REPORT.docx from embedded content
 │   ├── run_overnight.ps1             # Wrapper for long BERT runs
 │   ├── run_llm_overnight.ps1         # Wrapper for long LLM runs
 │   └── run_llm_overnight.bat         # Batch wrapper for LLM runs
